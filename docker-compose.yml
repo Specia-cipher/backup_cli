@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  backup-sentinel-cli:
+    build: .
+    container_name: backup-sentinel-cli
+    volumes:
+      - ./backup_storage:/root/backup_storage  # Persist backups outside the container
+      - ./logs:/root/logs                      # Persist logs (if needed)
+    stdin_open: true
+    tty: true
+    command: /bin/bash  # Drop into shell to run CLI commands interactively
