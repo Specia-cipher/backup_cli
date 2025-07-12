@@ -1,88 +1,92 @@
-📖 Initial README (Roadmap Inside)
-
-Here’s what we’ll seed inside:
-
-
----
-
 # 🗄️ Backup CLI Supreme – Luxury or Nothing Edition
 
-*"Life is narrow and steep, far and near." – Special Agent Idris*
+> *"Life is narrow and steep, far and near." – Special Agent Idris*
 
-A feature-rich backup CLI tool forged in Termux. Designed to scale from encrypted, versioned local backups to cloud-synced, Dockerized deployments.
-
----
-
-## 🏁 Overview
-This project aims to deliver a powerful backup solution with:
-
-✅ AES-256 encryption  
-✅ Versioned backups  
-✅ Compression (zip/tar.gz)  
-✅ Cloud sync (Phase 2)  
-✅ Beautiful CLI UX with progress bars, colors, and ASCII branding  
-
-Built entirely on Termux with future upgrades for BackBox/WSL.
+A feature-rich backup CLI tool crafted in Termux and now running stronger than ever in a **pocket-sized Kali Linux lab (via UserLAnd)**. Designed for encrypted, versioned local backups and scalable to cloud-synced, Dockerized deployments.
 
 ---
 
-## 🗡️ Phase 1 – Termux MVP (Luxury Core)
-
-### 📦 Core Features
-- 🔒 AES-256 Encryption (`--encrypt`)
-- 📦 Versioned Backups with timestamps
-- 🗜️ Compression Support (zip/tar.gz)
-- 🔄 Selective Restore (`--restore <date>`)
-- 🧹 Purge Old Backups (`--purge --older-than 30d`)
-- 📖 Backup Index (JSON backend)
-- 🖋️ Beautiful CLI UX (Rich, Click)
-- 📊 ASCII Logo & Animated Progress Bars
-- 📖 CLI Help & Docs
-
-### 🗓️ Tasks & ETA
-| Task                                | ETA   |
-|-------------------------------------|-------|
-| 📁 Project Scaffold & Git Init      | 0.5d  |
-| 🔒 AES Encryption Module            | 0.5d  |
-| 📦 Backup & Restore Core            | 1d    |
-| 🗜️ Compression Support               | 0.5d  |
-| 🖋️ CLI UX Polish                    | 0.5d  |
-| 🧹 Purge Command                     | 0.25d |
-| 📖 CLI Help & Docs                   | 0.25d |
+## 🚀 Current Status: MVP Live
+✅ **Versioned backups** with timestamped snapshots  
+✅ **Compression support** (ZIP, TAR.GZ)  
+✅ **Beautiful CLI UX** (progress bars, ASCII branding)  
+✅ **Fully functional in Termux and Kali (UserLAnd)** – a true mobile lab  
+🔜 **Next:** Encryption, purge logic, and audit logs
 
 ---
 
-## 🏯 Phase 2 – BackBox/WSL Upgrade (Enterprise Edition)
-
-### 📦 Advanced Features
-- ☁️ Cloud Sync (AWS S3, GCP, Dropbox)
-- 📅 Scheduled Backups (`--schedule daily`)
-- 👥 Multi-User Support (RBAC)
-- 🐳 Dockerization (Dockerfile + docker-compose)
-- 📖 Enhanced Logs & Audit Trail
-- 🖥️ Service Mode (background daemon)
-
----
-
-## 🌟 Phase 3 – Viral Polish (Optional but Recommended)
-- ✅ ASCII Logo Branding (Luxury or Nothing 🥷🏽)
-- ✅ Animated Progress Bars
-- ✅ Color-Coded Logs & Warnings
-- ✅ GIFs/Demos for LinkedIn
-- ✅ Interactive README with screenshots, badges, and usage GIFs
-- ✅ Test Coverage (Pytest)
+## 📦 Core Features (Phase 1)
+- 🔒 AES-256 encryption (**coming up**)
+- 📦 Versioned backups with timestamps
+- 🗜️ Compression support (`zip`, `tar.gz`)
+- 🔄 Selective restore (`--restore <date>`)
+- 🧹 Purge old backups (`--purge --older-than 30d`)
+- 📖 JSON-based backup index
+- 🖋️ Clean CLI UX with Click & Rich
 
 ---
 
-## 📖 CLI Command Examples
+## 💻 Quickstart
+
+### 🛠 Install
 ```bash
-backup-cli add ~/Documents --encrypt --compress zip
-backup-cli list
-backup-cli restore ~/Documents --date 2025-07-11
-backup-cli purge --older-than 30d
-backup-cli schedule daily --time 02:00
-backup-cli sync s3
-backup-cli logs --tail 10
+git clone https://github.com/Specia-cipher/backup_cli.git
+cd backup_cli
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+📖 Usage Examples
+
+📁 Create Backup
+
+python3 -m backup_cli.cli add ~/Documents --compress zip
+
+📦 List Backups
+
+python3 -m backup_cli.cli list
+
+🔄 Restore Backup
+
+python3 -m backup_cli.cli restore ~/Documents --date 2025-07-12
+
+🧹 Purge Old Backups
+
+python3 -m backup_cli.cli purge --older-than 30d
+
+
+---
+
+🗡️ Roadmap
+
+🥇 Phase 1 – Termux/Kali Pocket Lab MVP
+
+Task	Status
+
+📁 Project Scaffold	✅ Complete
+🗜️ Compression Support	✅ Complete
+📦 Backup & Restore Core	✅ Complete
+🔒 AES Encryption Module	🔜 Pending
+🧹 Purge Command	🔜 Pending
+🖋️ CLI UX Polish	🔜 Pending
+📖 CLI Help & Docs	🔜 Pending
+
+
+
+---
+
+🏯 Phase 2 – BackBox/WSL Upgrade (Enterprise Edition)
+
+☁️ Cloud Sync (AWS S3, GCP, Dropbox)
+
+📅 Scheduled Backups
+
+👥 Multi-User Support (RBAC)
+
+🐳 Dockerization (Dockerfile + docker-compose)
+
+🖥️ Service Mode (background daemon)
+
 
 
 ---
@@ -90,13 +94,7 @@ backup-cli logs --tail 10
 🥷 Sun Tzu Principle Applied
 
 "The warrior who controls himself is mightier than the one who controls armies."
-
-This CLI tool will control chaos with elegance and speed.
-
-
----
-
-⏳ Total ETA: ~8.5 days
+This CLI controls chaos with elegance and speed.
 
 
 ---
