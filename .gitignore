@@ -1,38 +1,23 @@
-.gitignore for Backup Sentinel CLI
+cat > .gitignore << 'EOF'
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.python-version
 
-Python
+# Docker
+*.swp
+*.swo
 
-pycache/ *.py[cod] *$py.class
+# IDE
+.vscode/
+.idea/
 
-Virtual environments
+# System
+.DS_Store
+Thumbs.db
 
-venv/ .env/ .venv/
-
-Backup storage (don’t commit actual backups)
-
+# Backups (optional)
 backup_storage/
-
-OS-specific files
-
-.DS_Store Thumbs.db
-
-Logs
-
-*.log backup_cli.log audit.log
-
-IDE and editor folders
-
-.vscode/ .idea/
-
-Build artifacts
-
-dist/ build/ *.egg-info/
-
-Test data
-
-testdata/
-
-Security
-
-keys_metadata.json
-
+*.enc
+EOF
