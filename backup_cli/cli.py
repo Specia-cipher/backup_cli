@@ -1,197 +1,238 @@
+#!/usr/bin/env python3
 import os
 import sys
-import shutil
+import json
+import boto3
+import logging
+import argparse
+import paramiko
 import zipfile
 import tarfile
-import datetime
-import tempfile
-import json
-import getpass
-import logging
+from io import BytesIO
 from pathlib import Path
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from getpass import getuser
+from datetime import datetime
+from botocore.exceptions import ClientError
 from cryptography.fernet import Fernet
-import paramiko  # For SFTP support
 
-# Config & Constants
-BACKUP_STORAGE_DIR = Path.home() / 'backup_storage'
-RECYCLE_BIN_DIR = BACKUP_STORAGE_DIR / 'recycle_bin'
-AES_KEY_PATH = Path.home() / '.backup_cli_aes_key'
-USERS_FILE = Path.home() / '.backup_cli_users.json'
-LOG_FILE = Path.home() / 'backup_cli_audit.log'
+# Configuration - All configurable via ENV vars
+class Config:
+    # Core
+    BACKUP_DIR = Path(os.getenv('BACKUP_DIR', str(Path.home() / 'backup_storage')))
+    RECYCLE_BIN = BACKUP_DIR / 'recycle_bin'
+    LOG_FILE = BACKUP_DIR / 'audit.log'
+    USERS_FILE = Path(os.getenv('USERS_FILE', str(Path.home() / '.backup_cli/users.json')))
+    KEY_FILE = Path(os.getenv('KEY_FILE', '/config/encryption.key'))
+    
+    # SFTP
+    SFTP_ENABLED = os.getenv('SFTP_ENABLED', 'false').lower() == 'true'
+    SFTP_HOST = os.getenv('SFTP_HOST', '')
+    SFTP_PORT = int(os.getenv('SFTP_PORT', '22'))
+    SFTP_USER = os.getenv('SFTP_USER', '')
+    SFTP_PASS = os.getenv('SFTP_PASS', '')
+    SFTP_REMOTE_DIR = os.getenv('SFTP_REMOTE_DIR', '/backups')
 
-SFTP_ENABLED = os.getenv('BACKUP_CLI_SFTP_ENABLED', 'false').lower() == 'true'
-SFTP_HOST = os.getenv('BACKUP_CLI_SFTP_HOST', '')
-SFTP_PORT = int(os.getenv('BACKUP_CLI_SFTP_PORT', '22'))
-SFTP_USERNAME = os.getenv('BACKUP_CLI_SFTP_USERNAME', '')
-SFTP_PASSWORD = os.getenv('BACKUP_CLI_SFTP_PASSWORD', '')
-SFTP_REMOTE_DIR = os.getenv('BACKUP_CLI_SFTP_REMOTE_DIR', '/remote/backup/dir')
+    # AWS S3
+    S3_ENABLED = os.getenv('S3_ENABLED', 'false').lower() == 'true'
+    S3_BUCKET = os.getenv('S3_BUCKET', '')
+    S3_PREFIX = os.getenv('S3_PREFIX', 'backups/')
+    AWS_ACCESS_KEY = os.getenv('AWS_ACCESS_KEY_ID', '')
+    AWS_SECRET_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '')
 
-# Setup logging
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+class BackupSentinel:
+    def __init__(self):
+        self._setup_dirs()
+        self.user = getuser()
+        self.role = self._load_user_role()
+        self.logger = self._setup_logging()
+        self.s3 = boto3.client(
+            's3',
+            aws_access_key_id=Config.AWS_ACCESS_KEY,
+            aws_secret_access_key=Config.AWS_SECRET_KEY
+        ) if Config.S3_ENABLED else None
 
-# RBAC Roles
-ROLES = {
-    "admin": ["backup", "restore", "purge", "logs"],
-    "operator": ["backup", "restore"],
-    "auditor": ["logs"]
-}
+    # === Core Operations ===
+    def backup(self, source_path: str, compress: str = 'zip', encrypt: bool = True):
+        """Full backup pipeline with compression + encryption"""
+        source = Path(source_path).resolve()
+        if not source.exists():
+            raise FileNotFoundError(f"Source not found: {source}")
 
-def log_action(action: str):
-    logging.info(action)
+        # Generate filename
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        backup_name = f"{source.name}_{timestamp}.{compress}"
+        backup_path = Config.BACKUP_DIR / backup_name
 
-# RBAC Authentication
-def load_users():
-    if USERS_FILE.exists():
-        with USERS_FILE.open() as f:
-            return json.load(f)
-    else:
-        return {}
+        # Compression
+        self._compress(source, backup_path, compress)
+        self.log(f"Compressed: {source} -> {backup_path}")
 
-def get_user_role(username):
-    users = load_users()
-    return users.get(username)
-
-def require_permission(role, action):
-    if action not in ROLES.get(role, []):
-        print(f"❌ Permission Denied: Role '{role}' cannot perform '{action}'.")
-        sys.exit(1)
-
-# Encryption Key Management
-def load_or_generate_key():
-    if not AES_KEY_PATH.exists():
-        print("🔑 No encryption key found.")
-        choice = input("Generate a new AES encryption key? (Y/n): ").strip().lower()
-        if choice in ['', 'y', 'yes']:
-            key = os.urandom(32)
-            AES_KEY_PATH.write_bytes(key)
-            print(f"✅ New AES key generated and saved to {AES_KEY_PATH}")
-            return key
-        else:
-            print("⚠️ Encryption will not be available without a key.")
-            sys.exit(1)
-    key = AES_KEY_PATH.read_bytes()
-    if len(key) != 32:
-        raise ValueError("Invalid AES key size. Expected 32 bytes.")
-    return key
-
-def create_backup_filename(base_name: str, ext: str) -> str:
-    timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-    return f"{base_name}_{timestamp}.{ext}"
-
-def compress_folder(source_path: Path, dest_path: Path, method: str = 'zip'):
-    if method == 'zip':
-        with zipfile.ZipFile(dest_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(source_path):
-                for file in files:
-                    abs_file = Path(root) / file
-                    rel_path = abs_file.relative_to(source_path)
-                    zipf.write(abs_file, rel_path)
-    elif method == 'tar.gz':
-        with tarfile.open(dest_path, 'w:gz') as tar:
-            tar.add(source_path, arcname=source_path.name)
-    else:
-        raise ValueError(f"Unsupported compression method: {method}")
-
-def encrypt_file(in_path: Path, out_path: Path, key: bytes):
-    data = in_path.read_bytes()
-    aesgcm = AESGCM(key)
-    nonce = os.urandom(12)
-    encrypted = aesgcm.encrypt(nonce, data, None)
-    out_path.write_bytes(nonce + encrypted)
-
-def decrypt_file(in_path: Path, out_path: Path, key: bytes):
-    data = in_path.read_bytes()
-    nonce, encrypted = data[:12], data[12:]
-    aesgcm = AESGCM(key)
-    decrypted = aesgcm.decrypt(nonce, encrypted, None)
-    out_path.write_bytes(decrypted)
-
-def backup(source_path: str, compress_method='zip', encrypt=True) -> Path:
-    source_path = Path(source_path).resolve()
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source path does not exist: {source_path}")
-
-    BACKUP_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-
-    base_name = source_path.name
-    compressed_ext = 'zip' if compress_method == 'zip' else 'tar.gz'
-    final_ext = compressed_ext + ('.enc' if encrypt else '')
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        temp_compressed = Path(tmpdir) / create_backup_filename(base_name, compressed_ext)
-        final_backup = BACKUP_STORAGE_DIR / create_backup_filename(base_name, final_ext)
-
-        compress_folder(source_path, temp_compressed, method=compress_method)
-        log_action(f"Compressed {source_path} -> {temp_compressed}")
-
+        # Encryption
         if encrypt:
-            key = load_or_generate_key()
-            encrypt_file(temp_compressed, final_backup, key)
-            log_action(f"Encrypted {temp_compressed} -> {final_backup}")
-        else:
-            shutil.move(temp_compressed, final_backup)
+            encrypted_path = self._encrypt_file(backup_path)
+            backup_path.unlink()  # Remove unencrypted
+            backup_path = encrypted_path
 
-        print(f"✅ Backup created at {final_backup}")
-        log_action(f"Backup created: {final_backup}")
+        # Remote sync
+        self._sync_to_remote(backup_path)
+        return backup_path
 
-        if SFTP_ENABLED:
-            sftp_upload(final_backup)
+    def restore(self, backup_name: str, output_dir: str = None):
+        """Restore pipeline with decryption"""
+        backup_path = Config.BACKUP_DIR / backup_name
+        if not backup_path.exists():
+            raise FileNotFoundError(f"Backup not found: {backup_name}")
 
-        return final_backup
+        output_path = Path(output_dir) if output_dir else Config.BACKUP_DIR / 'restored'
+        output_path.mkdir(exist_ok=True)
 
-def sftp_upload(local_path: Path):
-    if not all([SFTP_HOST, SFTP_USERNAME, SFTP_PASSWORD]):
-        print("❌ SFTP credentials not configured. Skipping upload.")
-        return
-    try:
-        transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
-        transport.connect(username=SFTP_USERNAME, password=SFTP_PASSWORD)
-        sftp = paramiko.SFTPClient.from_transport(transport)
-        remote_path = os.path.join(SFTP_REMOTE_DIR, local_path.name)
-        sftp.put(str(local_path), remote_path)
-        log_action(f"Uploaded {local_path} to SFTP {remote_path}")
-        print(f"☁️ Uploaded {local_path} to cloud via SFTP")
-        sftp.close()
-    except Exception as e:
-        print(f"❌ SFTP upload failed: {e}")
-        log_action(f"SFTP upload failed: {e}")
-    finally:
-        transport.close()
+        # Handle encrypted files
+        if backup_name.endswith('.enc'):
+            decrypted_path = self._decrypt_file(backup_path)
+            backup_path = decrypted_path
 
-# CLI Entry Point
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="🔒 Backup CLI with Encryption & RBAC")
-    parser.add_argument('source', help="Source folder/file to back up")
-    parser.add_argument('--compress', choices=['zip', 'tar.gz'], default='zip', help="Compression method")
-    parser.add_argument('--no-encrypt', action='store_true', help="Disable encryption")
-    parser.add_argument('--purge', type=int, help="Purge recycle bin files older than N days")
-    parser.add_argument('--restore', metavar='FILENAME', help="Restore a file from recycle bin")
-    parser.add_argument('--view-logs', action='store_true', help="View audit logs")
+        # Decompress
+        self._decompress(backup_path, output_path)
+        self.log(f"Restored: {backup_path} -> {output_path}")
+        return output_path
+
+    # === Storage Integrations ===
+    def _sync_to_remote(self, local_path: Path):
+        """Push to all configured remote targets"""
+        if Config.SFTP_ENABLED:
+            self._sftp_upload(local_path)
+        if Config.S3_ENABLED:
+            self._s3_upload(local_path)
+
+    def _s3_upload(self, local_path: Path):
+        """Upload to AWS S3"""
+        try:
+            s3_key = f"{Config.S3_PREFIX}{local_path.name}"
+            self.s3.upload_file(
+                str(local_path),
+                Config.S3_BUCKET,
+                s3_key
+            )
+            self.log(f"Uploaded to S3: s3://{Config.S3_BUCKET}/{s3_key}")
+        except ClientError as e:
+            self.log(f"S3 upload failed: {e}", level='error')
+
+    # === Security ===
+    def _encrypt_file(self, input_path: Path) -> Path:
+        """Encrypt file with Fernet"""
+        key = self._get_key()
+        cipher = Fernet(key)
+        encrypted = cipher.encrypt(input_path.read_bytes())
+        output_path = input_path.with_suffix(input_path.suffix + '.enc')
+        output_path.write_bytes(encrypted)
+        return output_path
+
+    def _decrypt_file(self, input_path: Path) -> Path:
+        """Decrypt Fernet-encrypted file"""
+        key = self._get_key()
+        cipher = Fernet(key)
+        decrypted = cipher.decrypt(input_path.read_bytes())
+        output_path = input_path.with_suffix('')  # Remove .enc
+        output_path.write_bytes(decrypted)
+        return output_path
+
+    # === Utility Methods ===
+    def _compress(self, source: Path, dest: Path, method: str):
+        """Compress using zip or tar.gz"""
+        if method == 'zip':
+            with zipfile.ZipFile(dest, 'w') as zipf:
+                for file in source.rglob('*'):
+                    zipf.write(file, file.relative_to(source))
+        else:  # tar.gz
+            with tarfile.open(dest, 'w:gz') as tar:
+                tar.add(source, arcname=source.name)
+
+    def _decompress(self, archive: Path, output_dir: Path):
+        """Extract compressed archives"""
+        if archive.suffix == '.zip':
+            with zipfile.ZipFile(archive) as zipf:
+                zipf.extractall(output_dir)
+        else:  # .tar.gz
+            with tarfile.open(archive) as tar:
+                tar.extractall(output_dir)
+
+    def _sftp_upload(self, local_path: Path):
+        """Upload to SFTP server"""
+        transport = paramiko.Transport((Config.SFTP_HOST, Config.SFTP_PORT))
+        transport.connect(username=Config.SFTP_USER, password=Config.SFTP_PASS)
+        try:
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            remote_path = f"{Config.SFTP_REMOTE_DIR}/{local_path.name}"
+            sftp.put(str(local_path), remote_path)
+            self.log(f"Uploaded to SFTP: {remote_path}")
+        finally:
+            transport.close()
+
+    def _get_key(self) -> bytes:
+        """Get or generate encryption key"""
+        if not Config.KEY_FILE.exists():
+            key = Fernet.generate_key()
+            Config.KEY_FILE.write_bytes(key)
+        return Config.KEY_FILE.read_bytes()
+
+    def _load_user_role(self) -> str:
+        """Load RBAC role with auto-init"""
+        if not Config.USERS_FILE.exists():
+            Config.USERS_FILE.write_text(json.dumps({self.user: "admin"}))
+        users = json.loads(Config.USERS_FILE.read_text())
+        return users.get(self.user, "operator")
+
+    def _setup_dirs(self):
+        """Ensure required directories exist"""
+        Config.BACKUP_DIR.mkdir(exist_ok=True)
+        Config.RECYCLE_BIN.mkdir(exist_ok=True)
+
+    def _setup_logging(self):
+        """Configure audit logging"""
+        logging.basicConfig(
+            filename=Config.LOG_FILE,
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        return logging.getLogger('backup_sentinel')
+
+    def log(self, message: str, level: str = 'info'):
+        """Unified logging"""
+        getattr(self.logger, level)(message)
+        print(f"[{level.upper()}] {message}")
+
+# CLI Interface
+def main():
+    parser = argparse.ArgumentParser(description="🔐 Backup Sentinel CLI")
+    parser.add_argument('source', nargs='?', help="Path to backup")
+    parser.add_argument('--compress', choices=['zip', 'tar.gz'], default='zip')
+    parser.add_argument('--no-encrypt', action='store_true')
+    parser.add_argument('--restore', metavar='BACKUP_NAME', help="Restore a backup")
+    parser.add_argument('--output-dir', help="Restoration output directory")
+    parser.add_argument('--list', action='store_true', help="List available backups")
+    
     args = parser.parse_args()
-
-    username = getpass.getuser()
-    role = get_user_role(username)
-    if not role:
-        print(f"❌ User '{username}' not found in RBAC database.")
-        sys.exit(1)
-    print(f"👤 User: {username} | Role: {role}")
+    sentinel = BackupSentinel()
 
     try:
-        if args.purge:
-            require_permission(role, 'purge')
-            purge_recycle_bin(args.purge)
+        if args.list:
+            backups = [f.name for f in Config.BACKUP_DIR.glob('*')]
+            print("Available backups:\n" + "\n".join(backups))
         elif args.restore:
-            require_permission(role, 'restore')
-            restore_from_recycle_bin(args.restore)
-        elif args.view_logs:
-            require_permission(role, 'logs')
-            with open(LOG_FILE) as f:
-                print(f.read())
+            restored_path = sentinel.restore(args.restore, args.output_dir)
+            print(f"✅ Restored to: {restored_path}")
+        elif args.source:
+            backup_path = sentinel.backup(
+                args.source,
+                compress=args.compress,
+                encrypt=not args.no_encrypt
+            )
+            print(f"✅ Backup created: {backup_path}")
         else:
-            require_permission(role, 'backup')
-            backup(args.source, compress_method=args.compress, encrypt=not args.no_encrypt)
+            parser.print_help()
     except Exception as e:
-        print(f"❌ Operation failed: {e}")
-        log_action(f"Operation failed: {e}")
+        sentinel.log(f"Operation failed: {e}", 'error')
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

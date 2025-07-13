@@ -1,12 +1,18 @@
 version: '3.8'
 
 services:
-  backup-sentinel-cli:
+  backup-sentinel:
     build: .
-    container_name: backup-sentinel-cli
     volumes:
-      - ./backup_storage:/root/backup_storage  # Persist backups outside the container
-      - ./logs:/root/logs                      # Persist logs (if needed)
-    stdin_open: true
-    tty: true
-    command: /bin/bash  # Drop into shell to run CLI commands interactively
+      - ./backup_storage:/backups  # Standardized path
+      - ./config:/config           # For RBAC and encryption keys
+    environment:
+      - BACKUP_DIR=/backups
+      - USERS_FILE=/config/users.json
+      - KEY_FILE=/config/encryption.key
+      # Optional cloud settings (uncomment when needed):
+      # - S3_ENABLED=true
+      # - S3_BUCKET=your-bucket
+      # - AWS_ACCESS_KEY_ID=your-key
+      # - AWS_SECRET_ACCESS_KEY=your-secret
+    command: ["/data", "--compress", "zip"]  # Default command

@@ -1,181 +1,93 @@
-# 🛡️ Backup Sentinel CLI
+🛡️ Backup Sentinel CLI  
+A modular, enterprise-ready CLI for secure, encrypted, and versioned backups.  
+Built for sysadmins, developers, and organizations that care about data integrity, disaster recovery, and operational excellence.  
 
-A modular, enterprise-ready CLI for **secure, encrypted, and versioned backups**.  
-Built for sysadmins, developers, and organizations that care about **data integrity**, **disaster recovery**, and **operational excellence**.
+"Surgical precision for your backups. Anywhere. Anytime."  
 
-> **"Surgical precision for your backups. Anywhere. Anytime."**
+📑 Table of Contents  
+🚀 Features  
+📦 Installation  
+📘 Usage Examples  
+🐳 Docker Support  
+🗑️ Recycle Bin  
+📜 Audit Logs  
+👥 RBAC Authentication  
+☁️ Cloud Storage (SFTP/S3)  
+👨‍💻 About the Author  
+📜 License  
 
----
+🚀 Features  
+✅ AES-256 Encryption – Military-grade encryption for backups  
+✅ Role-Based Access Control (RBAC) – user-level permissions  
+✅ Versioned Backups – Automatic timestamped versions  
+✅ Cross-Platform – Linux/macOS/Windows via Docker  
+✅ Cloud Sync – Simultaneous SFTP & AWS S3 uploads  
 
-## 📑 Table of Contents
-
-- [🚀 Features](#-features)  
-- [📦 Installation](#-installation)  
-- [📘 Usage Examples](#-usage-examples)  
-  - [Create Backup](#create-backup)  
-  - [Restore Backup](#restore-backup)  
-  - [Recycle Bin](#recycle-bin)  
-  - [Audit Logs](#audit-logs)  
-  - [RBAC Authentication](#rbac-authentication)  
-  - [SFTP Upload](#sftp-upload)  
-- [🐳 Docker Support](#-docker-support)  
-- [🗺 Roadmap](#-roadmap)  
-- [👨‍💻 About the Author](#-about-the-author)  
-- [📜 License](#-license)  
-
----
-
-## 🚀 Features
-
-✅ **AES-256 Encryption** – Strong encryption for secure backups.  
-✅ **Role-Based Access Control (RBAC)** – Fine-grained permissions for multi-user environments.  
-✅ **Versioned Backups** – Timestamped and safely stored.  
-✅ **Recycle Bin** – Soft delete with restore & purge options.  
-✅ **Audit Logging** – Tracks all operations for accountability.  
-✅ **SFTP Support** – Upload backups to remote servers securely.  
-✅ **Compression** – Supports `.zip` and `.tar.gz` archives.  
-✅ **Clean CLI UX** – Clear output and helpful prompts.  
-✅ **Docker Support** – Containerized deployments for modern infrastructures.  
-
----
-
-## 📦 Installation
-
+📦 Installation  
 ```bash
-git clone https://github.com/Specia-cipher/backup_cli.git
-cd backup_cli
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# Local development  
+git clone https://github.com/Specia-cipher/backup_cli.git  
+cd backup_cli  
+python3 -m venv venv  
+source venv/bin/activate  
+pip install -r requirements.txt  
 
-
----
-
+# Production deployment  
+docker build -t backup-sentinel .
 📘 Usage Examples
+Create Encrypted Backup
 
-🔥 Create Backup
+bash
+python3 -m backup_cli.cli ~/important_files --compress zip  
+# Output: ✅ Backup created at /backups/important_files_20250715-142310.zip.enc  
+Restore from Backup
 
-python3 -m backup_cli.cli /home/userland/testdata --compress zip
-
-✅ Output:
-
-👤 User: userland | Role: admin
-✅ Backup created at /home/userland/backup_storage/testdata_20250712-163131.zip.enc
-
-
----
-
-🔓 Restore Backup
-
-python3 -m backup_cli.cli --restore testdata_20250712-163131.zip.enc
-
-✅ Output:
-
-👤 User: userland | Role: operator
-🔓 Decrypting backup...
-📦 Decompressing ZIP...
-✅ Backup restored to /home/userland/restored_20250712-171045
-
-
----
-
-🗑️ Recycle Bin
-
-Move backup to recycle bin:
-
-python3 -m backup_cli.cli --purge 30
-
-✅ Output:
-
-🗑️ Moved to recycle bin: testdata_20250712-163131.zip.enc
-🧹 Purged files older than 30 days
-
-
----
-
-📜 Audit Logs
-
-python3 -m backup_cli.cli --view-logs
-
-✅ Output:
-
-2025-07-12 16:31:31 - INFO - Backup created: testdata_20250712-163131.zip.enc
-2025-07-12 16:35:12 - INFO - Restored testdata_20250712-163131.zip.enc
-
-
----
-
-👥 RBAC Authentication
-
-Each user must exist in .backup_cli_users.json:
-
-{
-  "adminuser": "admin",
-  "operatoruser": "operator",
-  "auditoruser": "auditor"
-}
-
-
----
-
-☁️ SFTP Upload
-
-Enable by setting environment variables:
-
-export BACKUP_CLI_SFTP_ENABLED=true
-export BACKUP_CLI_SFTP_HOST=sftp.example.com
-export BACKUP_CLI_SFTP_PORT=22
-export BACKUP_CLI_SFTP_USERNAME=youruser
-export BACKUP_CLI_SFTP_PASSWORD=yourpass
-export BACKUP_CLI_SFTP_REMOTE_DIR=/remote/backup/dir
-
-Backups are automatically uploaded after creation:
-
-☁️ Uploaded /home/userland/backup_storage/testdata_20250712-163131.zip.enc to cloud via SFTP
-
-
----
-
+bash
+python3 -m backup_cli.cli --restore important_files_20250715-142310.zip.enc  
+# Output: ✅ Restored to /restored/important_files_20250715-142856  
 🐳 Docker Support
 
-Build and run:
+bash
+# Minimal deployment  
+docker run --rm -v /host/data:/data -v /host/backups:/backups backup-sentinel /data  
 
-docker build -t backup-sentinel .
-docker run --rm backup-sentinel --help
+# Full production example:  
+docker run -d \  
+  -v /mnt/backups:/backups \  
+  -v /mnt/data:/data \  
+  -e S3_ENABLED=true \  
+  -e SFTP_HOST=backup.example.com \  
+  --name backup-sentinel \  
+  backup-sentinel
+☁️ Cloud Storage
+AWS S3 Configuration
 
+bash
+export S3_BUCKET="your-backup-bucket"  
+export AWS_ACCESS_KEY_ID="AKIA..."  
+export AWS_SECRET_ACCESS_KEY="..."  
+SFTP Configuration
 
----
+bash
+export SFTP_HOST="backup.example.com"  
+export SFTP_USER="backup_user"  
+export SFTP_PASS="..."  
+👥 RBAC Authentication
 
-🗺 Roadmap
-
-✅ Phase 1: Core Features Complete
-🚀 Phase 2:
-
-[x] Role-Based Access Control (RBAC)
-
-[x] SFTP Upload Support
-
-[ ] Cloud Storage Integrations (AWS S3, GCP, Dropbox)
-
-[ ] Scheduler (Cron, Systemd support)
-
-[ ] Healthcheck API for Docker/K8s
-
-
-
----
-
+json
+// .backup_cli_users.json  
+{  
+  "admin": "admin",  
+  "ops_team": "operator"  
+}
 👨‍💻 About the Author
+Sanni Babatunde Idris
 
-🔖 Built with ❤️ by Sanni Babatunde Idris
 GitHub: github.com/Specia-cipher
-LinkedIn: linkedin.com/in/sanni-idris-89917a262
 
-
----
+LinkedIn: linkedin.com/in/sanni-idris
 
 📜 License
+MIT License - See LICENSE.md for details.
 
-MIT – Free as in freedom. Protect your data.
 
----

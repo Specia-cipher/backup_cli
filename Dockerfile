@@ -1,26 +1,30 @@
-# Use official Python base image
 FROM python:3.11-slim
 
-# Set metadata
-LABEL maintainer="Sanni Babatunde Idris <sannifreelancer6779@gmail.com>"
-LABEL description="Backup Sentinel CLI – Phase 1 (Encrypted backups, Recycle bin, Audit logging)"
+# Metadata
+LABEL maintainer="Sanni Babatunde Idris"
+LABEL description="Backup Sentinel CLI - Phase 2 (With Cloud Support)"
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Environment
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    BACKUP_DIR=/backups \
+    USERS_FILE=/config/users.json \
+    KEY_FILE=/config/encryption.key
 
-# Set work directory
+# Install dependencies (including new cloud packages)
+RUN pip install --no-cache-dir \
+    cryptography \
+    paramiko \
+    boto3 \
+    && mkdir -p /backups /config
+
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt /app/
-RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+# Copy only necessary files
+COPY backup_cli/ ./backup_cli/
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
 
-# Copy project files
-COPY backup_cli /app/backup_cli
-COPY README.md /app/
-COPY . /app/
+# Entrypoint
+ENTRYPOINT ["python", "-m", "backup_cli.cli"]
 
-# Set entrypoint for CLI
-ENTRYPOINT ["python3", "-m", "backup_cli.cli"]
